@@ -1,0 +1,65 @@
+package com.f1analytix.server.service;
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Service;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.ServerSocket;
+import java.net.Socket;
+
+import tools.jackson.databind.ObjectMapper;
+import com.f1analytix.server.model.TelemetryRecord;
+import org.springframework.beans.factory.annotation.Autowired;
+
+@Service
+public class IngestionService implements CommandLineRunner {
+    private static final int PORT = 9999;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Override
+    public void run(String... args) throws Exception{
+        new Thread(this::startSocketServer).start();
+    }
+
+    private void startSocketServer(){
+        try(ServerSocket serverSocket = new ServerSocket(PORT)){
+            System.out.println("Ingestion server started on port " + PORT);
+
+            while (true) {
+                // Wait till emulator connect
+                Socket clientSocket = serverSocket.accept();
+                System.out.println("Client connected: " + clientSocket.getInetAddress());
+
+                // Handle connection in a dedicated thread
+                new Thread(() -> handleStream(clientSocket)).start();
+            }
+        } catch (Exception e) {
+            System.err.println("Error starting server: " + e.getMessage());
+        }
+    }
+
+    private void handleStream(Socket clientSocket){
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()))) {
+            String jsonLine;
+
+            while ((jsonLine = reader.readLine()) != null) {
+                try {
+                    // 1. Convert json text to our model structure
+                    TelemetryRecord telemetryRecord = objectMapper.readValue(jsonLine, TelemetryRecord.class);
+
+                    //
+                    System.out.printf("[Parsed] Driver #%d | Speed: %d km/h | Gear: %d%n",
+                            telemetryRecord.getDriver_number(), telemetryRecord.getSpeed(), telemetryRecord.getN_gear());
+
+                    // TODO: save it to Redis!
+                } catch (Exception e) {
+                    System.err.println("Error parsing JSON: " + e.getMessage());
+                }
+            }
+        } catch (Exception e){
+            System.err.println("Error receiving JSON: " + e.getMessage());
+        }
+    }
+}
