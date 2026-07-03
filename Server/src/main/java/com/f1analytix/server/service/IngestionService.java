@@ -1,6 +1,7 @@
 package com.f1analytix.server.service;
 
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -17,9 +18,11 @@ public class IngestionService implements CommandLineRunner {
 
     @Autowired
     private ObjectMapper objectMapper;
+    @Autowired
+    private RedisTemplate<String, TelemetryRecord> redisTemplate;
 
     @Override
-    public void run(String... args) throws Exception{
+    public void run(String... args) {
         new Thread(this::startSocketServer).start();
     }
 
@@ -49,11 +52,11 @@ public class IngestionService implements CommandLineRunner {
                     // 1. Convert json text to our model structure
                     TelemetryRecord telemetryRecord = objectMapper.readValue(jsonLine, TelemetryRecord.class);
 
-                    //
-                    System.out.printf("[Parsed] Driver #%d | Speed: %d km/h | Gear: %d%n",
-                            telemetryRecord.getDriver_number(), telemetryRecord.getSpeed(), telemetryRecord.getN_gear());
+                    // 2. Save to Redis
+                    String cacheKey = "driver:" + telemetryRecord.getDriver_number() + ":telemetry";
+                    redisTemplate.opsForValue().set(cacheKey, telemetryRecord);
 
-                    // TODO: save it to Redis!
+                    System.out.printf("[Saved to Redis] Key: %s | Speed: %d km/h, rpm: %d\n", cacheKey, telemetryRecord.getSpeed(), telemetryRecord.getRpm());
                 } catch (Exception e) {
                     System.err.println("Error parsing JSON: " + e.getMessage());
                 }
