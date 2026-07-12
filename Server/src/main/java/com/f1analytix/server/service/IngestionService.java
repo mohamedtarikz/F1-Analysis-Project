@@ -2,6 +2,7 @@ package com.f1analytix.server.service;
 
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -20,6 +21,8 @@ public class IngestionService implements CommandLineRunner {
     private ObjectMapper objectMapper;
     @Autowired
     private RedisTemplate<String, TelemetryRecord> redisTemplate;
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     @Override
     public void run(String... args) {
@@ -55,6 +58,9 @@ public class IngestionService implements CommandLineRunner {
                     // 2. Save to Redis
                     String cacheKey = "driver:" + telemetryRecord.getDriver_number() + ":telemetry";
                     redisTemplate.opsForValue().set(cacheKey, telemetryRecord);
+
+                    // 3. Send to WebSocket clients
+                    messagingTemplate.convertAndSend("/topic/telemetry/" + telemetryRecord.getDriver_number(), telemetryRecord);
 
                     System.out.printf("[Saved to Redis] Key: %s | Speed: %d km/h, rpm: %d\n", cacheKey, telemetryRecord.getSpeed(), telemetryRecord.getRpm());
                 } catch (Exception e) {
