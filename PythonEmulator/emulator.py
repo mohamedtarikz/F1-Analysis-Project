@@ -1,16 +1,28 @@
 import time
-import requests
 import socket
 import json
+import fastf1
+import os
 
-# 1. fetching telemetry from server
-print("Fetching data from OpenF1...")
-url = "https://api.openf1.org/v1/car_data?driver_number=55&session_key=9159&speed>=1"
-response = requests.get(url)
-telemetry = response.json()
-print(f"Loaded {len(telemetry)} telemetry records")
+cache_path = ".f1_cache"
 
-# 2. set up a local socket to stream to our Java app
+# 1. Enable cache and load FastF1 session
+if not os.path.exists(cache_path):
+    os.makedirs(cache_path)
+fastf1.Cache.enable_cache('.f1_cache')  # Creates local folder 'f1_cache'
+
+print("Loading FastF1 session data...")
+# Load a specific session (Year, Location/Grand Prix, Session Type 'R' = Race)
+session = fastf1.get_session(2023, 'Monza', 'R')
+session.load(telemetry=True, laps=True, weather=False)
+
+# Get telemetry for driver 55 (Carlos Sainz)
+driver_laps = session.laps.pick_driver('55')
+telemetry = driver_laps.get_telemetry()
+
+print(f"Loaded {len(telemetry)} high-density records!")
+
+# 2. Set up socket connection to Java backend
 JAVA_SERVER_IP = "localhost"
 JAVA_SERVER_PORT = 9999
 
@@ -20,16 +32,30 @@ print(f"Connecting to {JAVA_SERVER_IP}:{JAVA_SERVER_PORT}...")
 while True:
     try:
         client_socket.connect((JAVA_SERVER_IP, JAVA_SERVER_PORT))
-        print(f"Connected to {JAVA_SERVER_IP}:{JAVA_SERVER_PORT} successfully!")
+        print("Connected successfully!")
         break
     except socket.error:
-        print("Waiting for connection...")
+        print("Waiting for Java server...")
         time.sleep(1.5)
 
-# 3. Emulate live race data (sending every 100ms)
-for record in telemetry:
+# 3. Stream data points line-by-line
+for _, row in telemetry.iterrows():
+    # Construct a rich payload with track coordinates and driver inputs
+    record = {
+        "driver_number": 55,
+        "speed": float(row['Speed']),
+        "rpm": int(row['RPM']),
+        "n_gear": int(row['nGear']),
+        "throttle": float(row['Throttle']),
+        "brake": float(row['Brake']),
+        "drs": int(row['DRS']),
+        "x": float(row['X']),  # Track coordinate X
+        "y": float(row['Y']),  # Track coordinate Y
+        "time": str(row['Date'])  # Convert Pandas Timestamp to String
+    }
+    
     json_record = json.dumps(record) + "\n"
     client_socket.sendall(json_record.encode('utf-8'))
-
-    print(f"Sent: Driver {record['driver_number']} - Speed: {record['speed']} km/h")
-    time.sleep(0.1)
+    
+    print(f"Sent: Speed {record['speed']} km/h | Throttle: {record['throttle']}% | Pos: ({record['x']}, {record['y']})")
+    time.sleep(0.1)  # Stream at 100ms intervals

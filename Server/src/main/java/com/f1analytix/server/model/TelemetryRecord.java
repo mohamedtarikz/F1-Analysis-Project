@@ -6,6 +6,7 @@ import java.io.Serializable;
 @Data
 public class TelemetryRecord implements Serializable {
     private String date;
+    private String time;
     private int driver_number;
     private int rpm;
     private int speed;
